@@ -1,3 +1,9 @@
+/* SenderSocket Class, Open(), Close() and Send(), document RTO and flags for connections
+/*
+ * CPSC 612 Spring 2019
+ * HW3
+ * by Chengyi Min
+ */
 #pragma once
 #define MAGIC_PORT 22345 // receiver listens on this port
 #define MAX_PKT_SIZE (1500-28) // maximum UDP packet size accepted by receiver

@@ -152,11 +152,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="Checksum.h" />
     <ClInclude Include="Headers.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="SenderSocket.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Checksum.cpp" />
     <ClCompile Include="Headers.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

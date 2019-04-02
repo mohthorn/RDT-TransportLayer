@@ -1,3 +1,9 @@
+/* All mentioned classes except SenderSocket
+/*
+ * CPSC 612 Spring 2019
+ * HW3
+ * by Chengyi Min
+ */
 #pragma once
 #define FORWARD_PATH 0
 #define RETURN_PATH 1

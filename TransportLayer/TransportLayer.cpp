@@ -1,5 +1,9 @@
-// TransportLayer.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
+/* Main, call Socket operations
+/*
+ * CPSC 612 Spring 2019
+ * HW3
+ * by Chengyi Min
+ */
 
 #include "pch.h"
 #include "SenderSocket.h"

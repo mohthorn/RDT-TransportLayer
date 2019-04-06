@@ -69,8 +69,7 @@ int main(int argc, char **argv)
 		return 0;
 		// error handling: print status and quit
 	}
-
-
+	start = clock();
 
 	if(status == STATUS_OK)
 		printf("Main:   connected to %s in %.3lf sec, pkt size %d bytes\n", targetHost, ss.sampleRTT*1.0/1e3, MAX_PKT_SIZE);
@@ -81,7 +80,7 @@ int main(int argc, char **argv)
 		ss.opened = 0;
 		return 0;
 	}
-	start = clock();
+	
 	char *charBuf = (char*)dwordBuf; // this buffer goes into socket
 	UINT64 byteBufferSize = dwordBufSize << 2; // convert to bytes
 	UINT64 off = 0; // current position in buffer
@@ -99,8 +98,7 @@ int main(int argc, char **argv)
 		off += bytes;
 	}
 	end = clock();
-	duration = 1000000.0* (end - start) / (double)(CLOCKS_PER_SEC);
-
+	duration = 1000.0* (end - start);
 	if ((status = ss.Close()) != STATUS_OK)
 	{
 		printf("Main:   connect failed with status %d\n", status);

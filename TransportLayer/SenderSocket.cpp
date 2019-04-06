@@ -105,16 +105,9 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 			RTO,
 			inet_ntoa(remote.sin_addr)
 		);
-		if (sendto(sock, (char*)&ssh, sizeof(SenderSynHeader), 0, (struct sockaddr*)&remote, sizeof(remote)) == SOCKET_ERROR)
-		{
-			end = clock();
-			duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
-			printf("[%.3lf] -- > ", duration*1.0 / 1e6);
-			printf("failed sendto with %d\n", WSAGetLastError());
-			closesocket(sock);
-			return FAILED_SEND;
-		}
 
+		if (sendOnePacket((char*)(&ssh), sizeof(SenderSynHeader)) == SOCKET_ERROR)
+			return FAILED_SEND;
 
 		ReceiverHeader rh;
 
@@ -123,8 +116,6 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 		FD_SET(sock, &fd); // add your socket to the set
 		TIMEVAL *timeout = new TIMEVAL;
 
-		
-
 		timeout->tv_sec = floor(RTO);
 		timeout->tv_usec = 1e6 * (RTO-floor(RTO));
 
@@ -132,17 +123,8 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 		int available = select(0, &fd, NULL, NULL, timeout);
 		if (available > 0)
 		{
-			struct sockaddr_in response;
-			int responseSize = sizeof(response);
-			if ((recvSize = recvfrom(sock, (char*)&rh, sizeof(ReceiverHeader), 0, (struct sockaddr*) &response, &responseSize)) < 0)
-			{
-				end = clock();
-				duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
-				printf("[%.3lf] < -- ", duration*1.0 / 1e6);
-				printf("failed recvfrom with %d\n", WSAGetLastError());
-				closesocket(sock);
+			if (recvOnePacket((char *)&rh, sizeof(ReceiverHeader)) == FAILED_RECV)
 				return FAILED_RECV;
-			}
 			
 			prev = end;
 			end = clock();
@@ -151,6 +133,7 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 			
 			//update RTO on successful tx
 			RTO = 3.0* (sampleRTT) / (double)(CLOCKS_PER_SEC);
+			W = rh.recvWnd;
 
 			printf("[%.3lf] < -- ", duration*1.0 / 1e6);
 			printf("SYN-ACK %d window %d; setting initial RTO to %.3lf\n", 
@@ -175,7 +158,6 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 		}
 
 	}
-
 	return TIMEOUT;
 }
 
@@ -202,15 +184,8 @@ int SenderSocket::Close()
 
 	for (int i = 0; i < MAX_FIN_ATMP; i++)
 	{
-		if (sendto(sock, (char*)&ssh, sizeof(SenderSynHeader), 0, (struct sockaddr*)&remote, sizeof(remote)) == SOCKET_ERROR)
-		{
-			end = clock();
-			duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
-			printf("[%.3lf] -- > ", duration*1.0 / 1e6);
-			printf("failed sendto with %d\n", WSAGetLastError());
-			closesocket(sock);
+		if (sendOnePacket((char*)(&ssh), sizeof(SenderSynHeader)) == SOCKET_ERROR)
 			return FAILED_SEND;
-		}
 
 
 		end = clock();
@@ -237,17 +212,8 @@ int SenderSocket::Close()
 		int available = select(0, &fd, NULL, NULL, timeout);
 		if (available > 0)
 		{
-			struct sockaddr_in response;
-			int responseSize = sizeof(response);
-			if ((recvSize = recvfrom(sock, (char*)&rh, sizeof(ReceiverHeader), 0, (struct sockaddr*) &response, &responseSize)) < 0)
-			{
-				end = clock();
-				duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
-				printf("[%.3lf] < -- ", duration*1.0 / 1e6);
-				printf("failed recvfrom with %d\n", WSAGetLastError());
-				closesocket(sock);
+			if (recvOnePacket((char *)&rh, sizeof(ReceiverHeader)) == FAILED_RECV)
 				return FAILED_RECV;
-			}
 
 			end = clock();
 			duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
@@ -292,5 +258,63 @@ int SenderSocket::Send(char * buf, int bytes)
 		closesocket(sock);
 		return NOT_CONNECTED;
 	}
+	pending_pkts = new Packet[W];
+	nextSeq = 0;
+
+	//HANDLE arr[] = { eventQuit, empty };
+	//WaitForSingleObject(2, arr, false, INFINITE);
+	// no need for mutex as no shared variables are modified
+	UINT64 slot = nextSeq % W;
+	Packet *p = pending_pkts + slot; // pointer to packet struct
+	p->buf = new char[MAX_PKT_SIZE];
+	SenderDataHeader *sdh = (SenderDataHeader*)(p->buf);
+	p->seq = nextSeq;
+	sdh->seq = nextSeq;
+	memcpy(sdh+1, buf, bytes);
+	nextSeq++;
+	//ReleaseSemaphore(full, 1);
 	return STATUS_OK;
 }
+
+int SenderSocket::WorkThread(LPVOID pParam)
+{
+
+	return 0;
+}
+
+int SenderSocket::sendOnePacket(char * pack, int size)
+{
+	clock_t end;
+	clock_t duration;
+	if (sendto(sock, (char*)pack, size, 0, (struct sockaddr*)&remote, sizeof(remote)) == SOCKET_ERROR)
+	{
+		end = clock();
+		duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
+		printf("[%.3lf] -- > ", duration*1.0 / 1e6);
+		printf("failed sendto with %d\n", WSAGetLastError());
+		closesocket(sock);
+		return SOCKET_ERROR;
+	}
+	return STATUS_OK;
+}
+
+int SenderSocket::recvOnePacket(char * pack, int size)
+{
+	int recvSize = 0;
+	clock_t end;
+	clock_t duration;
+	struct sockaddr_in response;
+	int responseSize = sizeof(response);
+	if ((recvSize = recvfrom(sock, pack, size, 0, (struct sockaddr*) &response, &responseSize)) < 0)
+	{
+		end = clock();
+		duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
+		printf("[%.3lf] < -- ", duration*1.0 / 1e6);
+		printf("failed recvfrom with %d\n", WSAGetLastError());
+		closesocket(sock);
+		return FAILED_RECV;
+	}
+	return STATUS_OK;
+}
+
+

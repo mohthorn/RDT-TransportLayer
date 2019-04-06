@@ -59,5 +59,13 @@ public:
 	LinkProperties lp;
 };
 
+class Packet {
+public:
+	int seq; // for easy access in worker thread
+	int type; // SYN, FIN, data
+	int size; // for retx in worker thread
+	clock_t txTime; // transmission time
+	char *buf; // actual packet with header
+};
 #pragma pack(pop)
 

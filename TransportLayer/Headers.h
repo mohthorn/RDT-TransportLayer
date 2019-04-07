@@ -8,7 +8,7 @@
 #define FORWARD_PATH 0
 #define RETURN_PATH 1
 #define MAGIC_PROTOCOL 0x8311AA
-
+#define MAX_PKT_SIZE (1500-28) // maximum UDP packet size accepted by receiver
 // possible status codes from ss.Open, ss.Send, ss.Close
 #define STATUS_OK 0 // no error
 #define ALREADY_CONNECTED 1 // second call to ss.Open() without closing connection
@@ -66,6 +66,12 @@ public:
 	int size; // for retx in worker thread
 	clock_t txTime; // transmission time
 	char *buf; // actual packet with header
+};
+
+class NewPacket {
+public:
+	SenderDataHeader sdh;
+	char buf[MAX_PKT_SIZE - sizeof(SenderDataHeader)];
 };
 #pragma pack(pop)
 

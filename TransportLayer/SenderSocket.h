@@ -6,7 +6,7 @@
  */
 #pragma once
 #define MAGIC_PORT 22345 // receiver listens on this port
-#define MAX_PKT_SIZE (1500-28) // maximum UDP packet size accepted by receiver
+
 #define TSYN 0
 #define TFIN 1
 #define TDATA 2
@@ -39,12 +39,22 @@ public:
 	clock_t creationTime;
 	double RTO;
 	double sampleRTT;
+	double estRTT;
+	double devRTT;
 	int opened;
-	UINT64 nextSeq;
+	INT64 nextSeq;
+	INT64 lastACK;
 	UINT64 W;
 	Packet *pending_pkts;
+	HANDLE empty, full;
+	HANDLE eventQuit;
+	HANDLE socketReceiveReady;
+	INT64 nextToSend;
+	bool bufferFin;
+	HANDLE work_handle;
 
 	SenderSocket();
+	SenderSocket(UINT64 W);
 	~SenderSocket();
 	int Open(char * targetHost, int receivePort, int senderWindow, LinkProperties * linkProp);
 	int Close();

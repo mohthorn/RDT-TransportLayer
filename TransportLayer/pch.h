@@ -17,5 +17,6 @@
 #include <unordered_set>
 #include "Headers.h"
 #include "SenderSocket.h"
+#include "Checksum.h"
 using namespace std;
 #endif //PCH_HPCH_H

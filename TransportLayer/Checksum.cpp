@@ -1,3 +1,8 @@
+/*
+ * CPSC 612 Spring 2019
+ * HW3
+ * by Chengyi Min
+ */
 #include "pch.h"
 #include "Checksum.h"
 

@@ -70,6 +70,7 @@ int main(int argc, char **argv)
 		// error handling: print status and quit
 	}
 	start = clock();
+	ss.data_start = clock();
 
 	if(status == STATUS_OK)
 		printf("Main:   connected to %s in %.3lf sec, pkt size %d bytes\n", targetHost, ss.sampleRTT*1.0/1e3, MAX_PKT_SIZE);
@@ -84,6 +85,7 @@ int main(int argc, char **argv)
 	char *charBuf = (char*)dwordBuf; // this buffer goes into socket
 	UINT64 byteBufferSize = dwordBufSize << 2; // convert to bytes
 	UINT64 off = 0; // current position in buffer
+	int headerCount = 0;
 	while (off < byteBufferSize)
 	{
 		// decide the size of next chunk
@@ -96,14 +98,15 @@ int main(int argc, char **argv)
 		}
 		// error handing: print status and quit
 		off += bytes;
+		headerCount++;
 	}
 
 	ss.bufferFin = TRUE;
 
 	end = clock();
 	duration = 1000.0* (end - start);
-	double finalEstRTT = 0;
-	if ((status = ss.Close(finalEstRTT)) != STATUS_OK)
+	double elapsedTime = 0;
+	if ((status = ss.Close(elapsedTime)) != STATUS_OK)
 	{
 		printf("Main:   connect failed with status %d\n", status);
 		delete dwordBuf;
@@ -113,7 +116,7 @@ int main(int argc, char **argv)
 	Checksum cs;
 	DWORD check = cs.CRC32((unsigned char*)charBuf, byteBufferSize);
 
-	printf("Main:   transfer finished in %.3lf sec, %.2lf Kbps, checksum %X\n", duration/1e6, byteBufferSize/1000.0*8.0/(duration/1e6), check);
+	printf("Main:   transfer finished in %.3lf sec, %.2lf Kbps, checksum %X\n", elapsedTime*1.0/1e3 , (byteBufferSize)/1000.0*8.0/(elapsedTime*1.0 / 1e3), check);
 	printf("Main:   estRTT %.3lf, ideal rate %.2lf\n", ss.estRTT, ss.W * (MAX_PKT_SIZE - sizeof(SenderDataHeader)) *8.0 /1000.0/ss.estRTT);
 	delete dwordBuf;
 		// error handing: print status and quit

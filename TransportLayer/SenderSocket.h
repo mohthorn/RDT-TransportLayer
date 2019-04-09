@@ -53,12 +53,14 @@ public:
 	INT64 nextToSend;
 	bool bufferFin;
 	HANDLE work_handle;
+	clock_t data_start;
+	clock_t data_end;
 
 	SenderSocket();
 	SenderSocket(UINT64 W);
 	~SenderSocket();
 	int Open(char * targetHost, int receivePort, int senderWindow, LinkProperties * linkProp);
-	int Close(double &estRTT);
+	int Close(double &elapsedTime);
 	int Send(char * buf, int bytes);
 	int WorkThread(LPVOID pParam);
 	int sendOnePacket(char * pack, int size);

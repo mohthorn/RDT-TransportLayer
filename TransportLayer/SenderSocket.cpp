@@ -253,7 +253,7 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 	return TIMEOUT;
 }
 
-int SenderSocket::Close(double &finalEstRTT)
+int SenderSocket::Close(double &elapsedTime)
 {
 	clock_t end;
 	clock_t duration;
@@ -262,6 +262,8 @@ int SenderSocket::Close(double &finalEstRTT)
 	SetEvent(eventQuit);
 	WaitForSingleObject(work_handle, INFINITE);
 	CloseHandle(work_handle);
+	data_end = clock();
+	elapsedTime = 1000.0* (data_end - data_start) / (double)(CLOCKS_PER_SEC);
 	if (!opened)
 	{
 		end = clock();
@@ -318,7 +320,6 @@ int SenderSocket::Close(double &finalEstRTT)
 				rh.recvWnd
 			);
 			opened = 0;
-			finalEstRTT = estRTT;
 			return STATUS_OK;
 		}
 		else
@@ -407,7 +408,7 @@ int SenderSocket::WorkThread(LPVOID pParam)
 	{
 		
 		DWORD WaitTimeout;
-		DWORD timerExpire = RTO *1000;
+		DWORD timerExpire = 1.1*estRTT *1000;
 
 		if (nextToSend == nextSeq)
 		{

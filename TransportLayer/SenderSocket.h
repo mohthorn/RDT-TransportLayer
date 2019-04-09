@@ -26,6 +26,7 @@ public:
 	UINT64 F;
 	UINT64 W;
 	double S;
+	double V;
 	double RTT;
 };
 
@@ -57,7 +58,7 @@ public:
 	SenderSocket(UINT64 W);
 	~SenderSocket();
 	int Open(char * targetHost, int receivePort, int senderWindow, LinkProperties * linkProp);
-	int Close();
+	int Close(double &estRTT);
 	int Send(char * buf, int bytes);
 	int WorkThread(LPVOID pParam);
 	int sendOnePacket(char * pack, int size);

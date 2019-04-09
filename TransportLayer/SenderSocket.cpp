@@ -12,12 +12,52 @@
 #define BETA 0.25
 #define ALPHA 0.125
 
+DWORD StatusThread(LPVOID pParam)
+{
+	Parameters *p = (Parameters*)pParam;
+	clock_t start;
+	clock_t end;
+	clock_t duration;
+	
+	start = clock();
+	clock_t prevTime;
+	double prevV = 0;
+	end = clock();
+	prevTime = 1000.0* (end - start) / (double)(CLOCKS_PER_SEC);
+	while (true)
+	{	
+		
+		Sleep(2000);
+		end = clock();
+		duration = 1000.0* (end - start) / (double)(CLOCKS_PER_SEC);
+		printf("[%2d] B %6d (  %.1lf MB) N %6d T %d F %d W %d S %.3lf Mbps  RTT %.3lf\n",
+			(int)(duration/1000.0),
+			p->B,
+			floor(p->V / (1024.0*1024.0)*10.0+0.5)/10.0,
+			p->N,
+			p->T,
+			p->F,
+			p->W,
+			(p->V - prevV)*(8.0/1000.0) / (duration - prevTime ),
+			p->RTT);
+		prevV = p->V;
+		prevTime = duration;
+	}
+	return 0;
+}
+
 DWORD WINAPI ThreadStarter(LPVOID p)
 {
 
 	SenderSocket *ss = (SenderSocket *)p;
 
 	Parameters pParam;
+	pParam.T = 0;
+	pParam.F = 0;
+	pParam.V = 0;
+	pParam.S = 0;
+	pParam.RTT = ss->RTO;
+	HANDLE status_handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)StatusThread, (LPVOID)&pParam, 0, NULL);
 	ss->WorkThread((LPVOID)&pParam);
 	return 0;
 }
@@ -143,14 +183,14 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 	{
 		end = clock();
 		duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
-		printf("[%.3lf] -- > ", duration*1.0 / 1e6);
-		printf("SYN %d (attempt %d of %d, RTO %.3lf) to %s\n",
-			ssh.sdh.seq,
-			i + 1,
-			MAX_SYN_ATMP,
-			RTO,
-			inet_ntoa(remote.sin_addr)
-		);
+		//printf("[%.3lf] -- > ", duration*1.0 / 1e6);
+		//printf("SYN %d (attempt %d of %d, RTO %.3lf) to %s\n",
+		//	ssh.sdh.seq,
+		//	i + 1,
+		//	MAX_SYN_ATMP,
+		//	RTO,
+		//	inet_ntoa(remote.sin_addr)
+		//);
 
 		if (sendOnePacket((char*)(&ssh), sizeof(SenderSynHeader)) == SOCKET_ERROR)
 			return FAILED_SEND;
@@ -180,16 +220,17 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 
 			//update RTO on successful tx
 			RTO = 3.0* (sampleRTT) / (double)(CLOCKS_PER_SEC);
-			estRTT = (sampleRTT+1) / (double)(CLOCKS_PER_SEC);
+			estRTT = (sampleRTT) / (double)(CLOCKS_PER_SEC);
 			W = rh.recvWnd;
 
-			printf("[%.3lf] < -- ", duration*1.0 / 1e6);
-			printf("SYN-ACK %d window %d; setting initial RTO to %.3lf\n", 
-				rh.ackSeq, 
-				rh.recvWnd,
-				RTO);
+			//printf("[%.3lf] < -- ", duration*1.0 / 1e6);
+			//printf("SYN-ACK %d window %d; setting initial RTO to %.3lf\n", 
+			//	rh.ackSeq, 
+			//	rh.recvWnd,
+			//	RTO);
 
 			work_handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ThreadStarter, this, 0, NULL);
+
 
 			return STATUS_OK;
 		}
@@ -212,7 +253,7 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 	return TIMEOUT;
 }
 
-int SenderSocket::Close()
+int SenderSocket::Close(double &finalEstRTT)
 {
 	clock_t end;
 	clock_t duration;
@@ -244,13 +285,13 @@ int SenderSocket::Close()
 
 		end = clock();
 		duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
-		printf("[%.3lf] -- > FIN %d (attempt %d of %d, RTO %.3lf)\n",
-				duration *1.0/1e6,
-				ssh.sdh.seq,
-				i+1,
-				MAX_FIN_ATMP,
-				RTO
-				);
+		//printf("[%.3lf] -- > FIN %d (attempt %d of %d, RTO %.3lf)\n",
+		//		duration *1.0/1e6,
+		//		ssh.sdh.seq,
+		//		i+1,
+		//		MAX_FIN_ATMP,
+		//		RTO
+		//		);
 
 		ReceiverHeader rh;
 
@@ -271,12 +312,13 @@ int SenderSocket::Close()
 
 			end = clock();
 			duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
-			printf("[%.3lf] < -- FIN-ACK %d window %X\n",
+			printf("[%.2lf] < -- FIN-ACK %d window %X\n",
 				duration *1.0 / 1e6,
 				rh.ackSeq,
 				rh.recvWnd
 			);
 			opened = 0;
+			finalEstRTT = estRTT;
 			return STATUS_OK;
 		}
 		else
@@ -328,11 +370,11 @@ int SenderSocket::Send(char * buf, int bytes)
 	sdh->flags.FIN = 0;
 	sdh->flags.magic = MAGIC_PROTOCOL;
 	p->seq = nextSeq;
+	
 	p->size = bytes+ sizeof(SenderDataHeader);
 	memcpy(sdh+1, buf, bytes);
 	int sequence = *(int*)(p->buf + sizeof(SenderDataHeader));
 
-	printf("Put %d to the queue\n",sequence);
 	nextSeq++;
 	ReleaseSemaphore(full, 1, NULL);
 
@@ -341,6 +383,8 @@ int SenderSocket::Send(char * buf, int bytes)
 
 int SenderSocket::WorkThread(LPVOID pParam)
 {
+	Parameters *p = (Parameters*)pParam;
+
 	clock_t start;
 	clock_t end;
 	clock_t duration;
@@ -357,6 +401,8 @@ int SenderSocket::WorkThread(LPVOID pParam)
 	timeout->tv_usec = 1e6 * (RTO - floor(RTO));
 	clock_t timerStart = clock();
 	
+	int retransFlag = 0;
+
 	while (true)
 	{
 		
@@ -377,14 +423,11 @@ int SenderSocket::WorkThread(LPVOID pParam)
 				WaitTimeout = 1;
 				ResetEvent(socketReceiveReady);
 				ReleaseSemaphore(full, 1, NULL);
+				retransFlag = 1;
 			}
 		}
 		int ret = WaitForMultipleObjects(3, events, false, WaitTimeout);
 
-		//if (WSAEventSelect(sock, socketReceiveReady, FD_READ) == SOCKET_ERROR)
-		//{
-
-		//}
 
 		switch (ret)
 		{
@@ -404,10 +447,25 @@ int SenderSocket::WorkThread(LPVOID pParam)
 					}
 				}	
 			}
+			case WAIT_OBJECT_0:	//send a packet / retransmit
+			{
+				Packet * sndP = &pending_pkts[nextToSend%W];
+				int sequence = *(int*)(sndP->buf + sizeof(SenderDataHeader));
+				if (sendOnePacket((char*)(sndP->buf), sndP->size) == SOCKET_ERROR)
+					return FAILED_SEND;
+				start = clock();
+				SetEvent(socketReceiveReady);
+				timerStart = clock();
+				p->B = nextToSend-W;
+				//printf("Sent %d\n", nextToSend);
+				break;
+			}
 			case WAIT_OBJECT_0 + 1: //receive
 			{
+				timeout->tv_sec = floor(RTO);
+				timeout->tv_usec = 1e6 * (RTO - floor(RTO));
+				
 				ReceiverHeader rh;
-
 				fd_set fd;
 				FD_ZERO(&fd); // clear the set 
 				FD_SET(sock, &fd); // add your socket to the set
@@ -416,29 +474,49 @@ int SenderSocket::WorkThread(LPVOID pParam)
 				{
 					if (recvOnePacket((char *)&rh, sizeof(ReceiverHeader)) == FAILED_RECV)
 						return FAILED_RECV;
-
-					printf("Received ACK %d, recvWind %X\n", rh.ackSeq, rh.recvWnd);
-					nextToSend++;
 					end = clock();
-					sampleRTT = (end - start) / (double)(CLOCKS_PER_SEC);
+					//printf("Received ACK %d, recvWind %X\n", rh.ackSeq, rh.recvWnd);
 
-					printf("sample RTT %lf\n", sampleRTT);
-					devRTT = (1 - BETA)*devRTT + BETA * fabs(sampleRTT - estRTT);
-					estRTT = (1 - ALPHA)*estRTT + ALPHA * sampleRTT;
-					RTO = estRTT + 4 * devRTT;
+					p->W = min(W, rh.recvWnd);
 
-					printf("est RTT %lf\n", estRTT);
+					//recalculate RTO
+					if (retransFlag)
+					{
+						duration = 1000000.0*(end - start) / (double)(CLOCKS_PER_SEC);
+						//printf("[%.3lf] -- > ", duration*1.0 / 1e6);
+						retransFlag = 0;
+						p->T++;
+						//printf("*retransmission received\n");
+					}
+					else
+					{
+						sampleRTT = (end - start) / (double)(CLOCKS_PER_SEC);
+						devRTT = (1 - BETA)*devRTT + BETA * fabs(sampleRTT - estRTT);
+						estRTT = (1 - ALPHA)*estRTT + ALPHA * sampleRTT;
+						RTO = estRTT + 4 * devRTT;
+						p->RTT = estRTT;
+					}
+					//printf("RTO: %d.%d\n", timeout->tv_sec, timeout->tv_usec);
 
-					printf("RTO %lf\n", RTO);
+					//printf("new RTO %lf\n", RTO);
 					lastACK = rh.ackSeq;
-					ReleaseSemaphore(empty, 1, NULL);
-					ResetEvent(socketReceiveReady);
+					p->N = lastACK;
+					if (nextToSend == rh.ackSeq - 1)
+					{
+						p->V += pending_pkts[nextToSend%W].size;
+						nextToSend++;
+						ReleaseSemaphore(empty, 1, NULL);
+						ResetEvent(socketReceiveReady);
+					}
 				}
 				else
 				{
 					if (available == 0)
 					{
-						printf("reveived Nothing\n");
+						//printf("RTO: %d.%d\n", timeout->tv_sec, timeout->tv_usec);
+						duration = 1000000.0*(end - timerStart) / (double)(CLOCKS_PER_SEC);
+						//printf("[%.3lf] -- > ", duration*1.0 / 1e6);
+						//printf("reveived Nothing\n");
 						//ReleaseSemaphore(full, 1, NULL);
 						continue;
 					}
@@ -452,25 +530,7 @@ int SenderSocket::WorkThread(LPVOID pParam)
 				}
 				break;
 			}
-			case WAIT_OBJECT_0:	//send a packet / retransmit
-			{
-				Packet * sndP = &pending_pkts[nextToSend%W];
-				int sequence = *(int*)(sndP->buf + sizeof(SenderDataHeader));
-				timeout->tv_sec = floor(RTO);
-				timeout->tv_usec = 1e6 * (RTO - floor(RTO));
-				printf("RTO: %d.%d\n", timeout->tv_sec, timeout->tv_usec);
-
-				if (sendOnePacket((char*)(sndP->buf), sndP->size) == SOCKET_ERROR)
-					return FAILED_SEND;
-
-				start = clock();
-				printf("Sent %d First 4 Bytes %d\n", sndP->seq, sequence);
-				SetEvent(socketReceiveReady);
-				timerStart = clock();
-				break;	
-			}
-		}
-		
+		}	
 	}
 
 

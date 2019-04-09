@@ -102,19 +102,19 @@ int main(int argc, char **argv)
 
 	end = clock();
 	duration = 1000.0* (end - start);
-	if ((status = ss.Close()) != STATUS_OK)
+	double finalEstRTT = 0;
+	if ((status = ss.Close(finalEstRTT)) != STATUS_OK)
 	{
 		printf("Main:   connect failed with status %d\n", status);
 		delete dwordBuf;
 		return 0;
 		// error handling: print status and quit
 	}
-
-	printf("Main:   transfer finished in %.3lf sec\n", duration/1e6);
 	Checksum cs;
 	DWORD check = cs.CRC32((unsigned char*)charBuf, byteBufferSize);
-	printf("Checksum %X", check);
 
+	printf("Main:   transfer finished in %.3lf sec, %.2lf Kbps, checksum %X\n", duration/1e6, byteBufferSize/1000.0*8.0/(duration/1e6), check);
+	printf("Main:   estRTT %.3lf, ideal rate %.2lf\n", ss.estRTT, ss.W * (MAX_PKT_SIZE - sizeof(SenderDataHeader)) *8.0 /1000.0/ss.estRTT);
 	delete dwordBuf;
 		// error handing: print status and quit
 

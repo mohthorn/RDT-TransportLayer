@@ -18,6 +18,7 @@
 #define TIMEOUT 5 // timeout after all retx attempts are exhausted
 #define FAILED_RECV 6 // recvfrom() failed in kernel
 #define FAILCODE -1
+#define LOGGING 0
 
 #pragma pack(push, 1)
 

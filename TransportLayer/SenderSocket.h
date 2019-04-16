@@ -45,7 +45,10 @@ public:
 	int opened;
 	INT64 nextSeq;
 	INT64 lastACK;
+	INT64 sndBase;
+	INT64 lastReleased;
 	UINT64 W;
+	UINT64 effectiveWin;
 	Packet *pending_pkts;
 	HANDLE empty, full;
 	HANDLE eventQuit;

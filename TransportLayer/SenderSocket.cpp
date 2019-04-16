@@ -11,6 +11,7 @@
 #define MAX_FIN_ATMP 5
 #define BETA 0.25
 #define ALPHA 0.125
+#define MAX_ATTEMPT 50
 
 DWORD StatusThread(LPVOID pParam)
 {
@@ -30,16 +31,16 @@ DWORD StatusThread(LPVOID pParam)
 		Sleep(2000);
 		end = clock();
 		duration = 1000.0* (end - start) / (double)(CLOCKS_PER_SEC);
-		printf("[%2d] B %6d (  %.1lf MB) N %6d T %d F %d W %d S %.3lf Mbps  RTT %.3lf\n",
-			(int)(duration/1000.0),
-			p->B,
-			floor(p->V / (1024.0*1024.0)*10.0+0.5)/10.0,
-			p->N,
-			p->T,
-			p->F,
-			p->W,
-			(p->V - prevV)*(8.0/1000.0) / (duration - prevTime ),
-			p->RTT);
+		//printf("[%2d] B %6d (  %.1lf MB) N %6d T %d F %d W %d S %.3lf Mbps  RTT %.3lf\n",
+		//	(int)(duration/1000.0),
+		//	p->B,
+		//	floor(p->V / (1024.0*1024.0)*10.0+0.5)/10.0,
+		//	p->N,
+		//	p->T,
+		//	p->F,
+		//	p->W,
+		//	(p->V - prevV)*(8.0/1000.0) / (duration - prevTime ),
+		//	p->RTT);
 		prevV = p->V;
 		prevTime = duration;
 	}
@@ -74,10 +75,11 @@ SenderSocket::SenderSocket(UINT64 W)
 	RTO = 1;
 	sampleRTT = 0;
 	nextSeq = 0;
-	W = W;
+	this->W = W;
+	effectiveWin = 1;
 	pending_pkts = new Packet[W];
 	bufferFin = FALSE;
-	empty = CreateSemaphore(NULL, W, W, NULL);
+	empty = CreateSemaphore(NULL, 0, W, NULL);
 	lastACK = 0;
 	if (empty == NULL)
 	{
@@ -223,7 +225,6 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 			//update RTO on successful tx
 			RTO = 3.0* (sampleRTT) / (double)(CLOCKS_PER_SEC);
 			estRTT = (sampleRTT) / (double)(CLOCKS_PER_SEC);
-			W = rh.recvWnd;
 #if LOGGING
 			printf("[%.3lf] < -- ", duration*1.0 / 1e6);
 			printf("SYN-ACK %d window %d; setting initial RTO to %.3lf\n", 
@@ -231,6 +232,9 @@ int SenderSocket::Open(char * targetHost, int receivePort, int senderWindow, Lin
 				rh.recvWnd,
 				RTO);
 #endif
+			lastReleased = min(W, rh.recvWnd);
+			printf("release %d\n", lastReleased);
+			ReleaseSemaphore(empty, lastReleased, NULL);
 			//start working thread
 			work_handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)ThreadStarter, this, 0, NULL);
 
@@ -284,7 +288,6 @@ int SenderSocket::Close(double &elapsedTime)
 	{
 		if (sendOnePacket((char*)(&ssh), sizeof(SenderSynHeader)) == SOCKET_ERROR)
 			return FAILED_SEND;
-
 
 		end = clock();
 		duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
@@ -373,7 +376,7 @@ int SenderSocket::Send(char * buf, int bytes)
 	sdh->flags.FIN = 0;
 	sdh->flags.magic = MAGIC_PROTOCOL;
 	p->seq = nextSeq;
-	
+	printf("put %d\n", p->seq);
 	p->size = bytes+ sizeof(SenderDataHeader);
 	memcpy(sdh+1, buf, bytes);
 	int sequence = *(int*)(p->buf + sizeof(SenderDataHeader));
@@ -393,8 +396,9 @@ int SenderSocket::WorkThread(LPVOID pParam)
 	clock_t duration;
 	clock_t prev;
 
-	HANDLE events[] = {  full, socketReceiveReady };
+	HANDLE events[] = { socketReceiveReady,full };
 	nextToSend = 0;
+
 	fd_set fd;
 	FD_ZERO(&fd); // clear the set 
 	FD_SET(sock, &fd); // add your socket to the set
@@ -405,16 +409,17 @@ int SenderSocket::WorkThread(LPVOID pParam)
 	clock_t timerStart = clock();
 	
 	int retransFlag = 0;
+	int lastAttempt = -1;
+	int attemptCount = 0;
 
 	while (true)
-	{
-		
+	{	
 		DWORD WaitTimeout;
 		DWORD timerExpire = 1.0*estRTT *1000;
 
 		if (bufferFin == TRUE) // all packets on buf
 		{
-			printf("lastACK %d, nextSeq %d\n", lastACK, nextSeq);
+			/*printf("lastACK %d, nextSeq %d\n", lastACK, nextSeq);*/
 			if (lastACK == nextSeq)	//all sent and acked
 			{
 				WaitForSingleObject(eventQuit, INFINITE);
@@ -431,45 +436,49 @@ int SenderSocket::WorkThread(LPVOID pParam)
 		}
 		int ret = WaitForMultipleObjects(2, events, false, WaitTimeout);
 
-
 		switch (ret)
 		{
 			case WAIT_TIMEOUT:		//retransmit
 			{
-
+				if (lastAttempt == sndBase)
+					attemptCount++;
+				else
+				{
+					lastAttempt = sndBase;
+					attemptCount = 1;
+				}
+				if (attemptCount == MAX_ATTEMPT)
+				{
+					printf("Exceeding Max Attempt\n");
+					exit(0);
+				}
+				//retransmission begin 
+				Packet * sndP = &pending_pkts[nextToSend%W];
+				if (sendOnePacket((char*)(sndP->buf), sndP->size) == SOCKET_ERROR)
+					return FAILED_SEND;
+				printf("retransmitt %d, nextToSend %d\n", sndP->seq, nextToSend);
 				retransFlag = 1;
-				Packet * sndP = &pending_pkts[nextToSend%W];
-				int sequence = *(int*)(sndP->buf + sizeof(SenderDataHeader));
-				if (sendOnePacket((char*)(sndP->buf), sndP->size) == SOCKET_ERROR)
-					return FAILED_SEND;
+				timerStart = clock();
 				start = clock();
 				SetEvent(socketReceiveReady);
-				timerStart = clock();
-				p->B = nextToSend - W;
-				//printf("Sent %d\n", nextToSend);
-				break;
-		
-				//ReleaseSemaphore(full, 1, NULL);
-				
+				break;				
 			}
-			case WAIT_OBJECT_0+2: //EventQuit
-			{
-
-			}
-			case WAIT_OBJECT_0:	//send a packet / retransmit
+			case WAIT_OBJECT_0+1:	//send a packet
 			{
 				Packet * sndP = &pending_pkts[nextToSend%W];
-				int sequence = *(int*)(sndP->buf + sizeof(SenderDataHeader));
 				if (sendOnePacket((char*)(sndP->buf), sndP->size) == SOCKET_ERROR)
 					return FAILED_SEND;
-				start = clock();
+				if (nextToSend%W == 0)
+				{
+					start = clock();
+					timerStart = clock();
+				}
+				printf("Sent %d,nextToSend %d, W %d \n", sndP->seq, nextToSend, W);
+				nextToSend++;	
 				SetEvent(socketReceiveReady);
-				timerStart = clock();
-				p->B = nextToSend-W;
-				//printf("Sent %d\n", nextToSend);
 				break;
 			}
-			case WAIT_OBJECT_0 + 1: //receive
+			case WAIT_OBJECT_0: //receive
 			{
 				timeout->tv_sec = floor(RTO);
 				timeout->tv_usec = 1e6 * (RTO - floor(RTO));
@@ -483,7 +492,17 @@ int SenderSocket::WorkThread(LPVOID pParam)
 				{
 					if (recvOnePacket((char *)&rh, sizeof(ReceiverHeader)) == FAILED_RECV)
 						return FAILED_RECV;
+					lastACK = rh.ackSeq;
 					end = clock();
+					if (lastACK > sndBase)
+					{
+						sndBase = lastACK;
+						effectiveWin = min(W, rh.recvWnd);
+						int newReleased = sndBase + effectiveWin - lastReleased;
+						printf("sndBase %d release %d last release %d\n",sndBase, newReleased, lastReleased);
+						ReleaseSemaphore(empty, newReleased, NULL);
+						lastReleased += newReleased;
+					}
 					printf("Received ACK %d, recvWind %X\n", rh.ackSeq, rh.recvWnd);
 
 					p->W = min(W, rh.recvWnd);
@@ -492,7 +511,6 @@ int SenderSocket::WorkThread(LPVOID pParam)
 					if (retransFlag)
 					{
 						duration = 1000000.0*(end - start) / (double)(CLOCKS_PER_SEC);
-
 						retransFlag = 0;
 						p->T++;
 #if LOGGING
@@ -511,17 +529,10 @@ int SenderSocket::WorkThread(LPVOID pParam)
 					//printf("RTO: %d.%d\n", timeout->tv_sec, timeout->tv_usec);
 
 					//printf("new RTO %lf\n", RTO);
-					lastACK = max(lastACK, rh.ackSeq);
+					
 					p->N = lastACK;
 					
-					if (nextToSend == rh.ackSeq - 1)
-					{
-						p->V += pending_pkts[nextToSend%W].size;
-						nextToSend++;
-=
-						ReleaseSemaphore(empty, 1, NULL);
-						ResetEvent(socketReceiveReady);
-					}
+					
 					p->B = nextToSend - W;
 					ResetEvent(socketReceiveReady);
 				}
@@ -548,8 +559,6 @@ int SenderSocket::WorkThread(LPVOID pParam)
 			}
 		}	
 	}
-
-
 	return 0;
 }
 

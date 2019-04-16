@@ -47,6 +47,7 @@ public:
 	INT64 lastACK;
 	INT64 sndBase;
 	INT64 lastReleased;
+	DWORD *timeArr;
 	UINT64 W;
 	UINT64 effectiveWin;
 	Packet *pending_pkts;

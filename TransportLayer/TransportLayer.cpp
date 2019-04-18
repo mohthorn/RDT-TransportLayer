@@ -59,7 +59,7 @@ int main(int argc, char **argv)
 	}
 
 
-	SenderSocket ss(senderWindow); // instance of your class
+	SenderSocket ss(senderWindow, lp.RTT); // instance of your class
 	start = clock();
 	if ((status = ss.Open(targetHost, MAGIC_PORT, senderWindow, &lp)) != STATUS_OK)
 	{
@@ -117,7 +117,7 @@ int main(int argc, char **argv)
 	DWORD check = cs.CRC32((unsigned char*)charBuf, byteBufferSize);
 
 	printf("Main:   transfer finished in %.3lf sec, %.2lf Kbps, checksum %X\n", elapsedTime*1.0/1e3 , (byteBufferSize)/1000.0*8.0/(elapsedTime*1.0 / 1e3), check);
-	printf("Main:   estRTT %.3lf, ideal rate %.2lf\n", ss.estRTT, ss.W * (MAX_PKT_SIZE - sizeof(SenderDataHeader)) *8.0 /1000.0/ss.estRTT);
+	printf("Main:   estRTT %.3lf, ideal rate %.2lf Kbps\n", ss.estRTT, ss.W * (MAX_PKT_SIZE - sizeof(SenderDataHeader)) *8.0 /1000.0/ss.estRTT);
 	delete dwordBuf;
 		// error handing: print status and quit
 

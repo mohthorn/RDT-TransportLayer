@@ -43,6 +43,7 @@ public:
 	double estRTT;
 	double devRTT;
 	int opened;
+	int * retransFlag;
 	INT64 nextSeq;
 	INT64 lastACK;
 	INT64 sndBase;
@@ -53,7 +54,9 @@ public:
 	Packet *pending_pkts;
 	HANDLE empty, full;
 	HANDLE eventQuit;
-	HANDLE socketReceiveReady;
+	int workerQuit;
+	WSAEVENT socketReceiveReady;
+	WSANETWORKEVENTS NetworkEvents;
 	INT64 nextToSend;
 	bool bufferFin;
 	HANDLE work_handle;
@@ -61,7 +64,7 @@ public:
 	clock_t data_end;
 
 	SenderSocket();
-	SenderSocket(UINT64 W);
+	SenderSocket(UINT64 W, double RTT);
 	~SenderSocket();
 	int Open(char * targetHost, int receivePort, int senderWindow, LinkProperties * linkProp);
 	int Close(double &elapsedTime);
@@ -69,5 +72,6 @@ public:
 	int WorkThread(LPVOID pParam);
 	int sendOnePacket(char * pack, int size);
 	int recvOnePacket(char * pack, int size);
+
 };
 

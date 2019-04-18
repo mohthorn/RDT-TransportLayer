@@ -104,7 +104,7 @@ SenderSocket::SenderSocket(UINT64 W, double RTT)
 		printf("CreateEvent error: %d\n", GetLastError());
 		exit;
 	}
-	socketReceiveReady = WSACreateEvent();
+	socketReceiveReady = CreateEvent(NULL, true, false, NULL);
 	if (socketReceiveReady == NULL)
 	{
 		printf("CreateWSAEvent error: %d\n", WSAGetLastError());
@@ -406,6 +406,12 @@ int SenderSocket::WorkThread(LPVOID pParam)
 		printf("WSAEventSelect() failed with error %d\n", WSAGetLastError());
 		exit(0);
 	}
+	int kernelBuffer = 20e6; // 20 meg
+	if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char *)&kernelBuffer, sizeof(int)) == SOCKET_ERROR)
+		printf("failed setsockopt with %d\n", WSAGetLastError());
+	kernelBuffer = 20e6; // 20 meg
+	if (setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char *)&kernelBuffer, sizeof(int)) == SOCKET_ERROR)
+		printf("failed setsockopt with %d\n", WSAGetLastError());
 	HANDLE events[] = { socketReceiveReady, full};
 	nextToSend = 0;
 	clock_t timerStart = clock();
@@ -572,6 +578,7 @@ int SenderSocket::sendOnePacket(char * pack, int size)
 	clock_t duration;
 	if (sendto(sock, (char*)pack, size, 0, (struct sockaddr*)&remote, sizeof(sockaddr)) == SOCKET_ERROR)
 	{
+
 		end = clock();
 		duration = 1000000.0* (end - creationTime) / (double)(CLOCKS_PER_SEC);
 		printf("[%.3lf] -- > ", duration*1.0 / 1e6);
